@@ -330,7 +330,7 @@
       isRecording = true;
       console.log('[Camera Overlay] MediaRecorder started, isRecording:', isRecording);
 
-      // 隐藏悬浮窗（避免被录制进去）
+      // 录制时隐藏悬浮窗（不把它录制到视频中）
       if (overlay) {
         overlay.style.display = 'none';
       }
@@ -379,45 +379,8 @@
 
       canvasCtx.drawImage(tabVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
-      // 绘制摄像头悬浮窗（右下角）
-      if (cameraVideo && overlay && settings.showOverlay) {
-        const rect = overlay.getBoundingClientRect();
-        const size = SIZE_MAP[settings.windowSize] || SIZE_MAP.medium;
-        let camWidth = size.width * 2;
-        let camHeight = size.height * 2;
-
-        // 圆形模式
-        if (settings.borderRadius === '50') {
-          camWidth = camHeight = Math.max(camWidth, camHeight);
-        }
-
-        const camX = canvas.width - camWidth - 40;
-        const camY = canvas.height - camHeight - 40;
-
-        // 绘制摄像头区域背景
-        canvasCtx.fillStyle = 'black';
-        canvasCtx.fillRect(camX - 4, camY - 4, camWidth + 8, camHeight + 8);
-
-        // 绘制摄像头视频
-        canvasCtx.save();
-        canvasCtx.beginPath();
-        if (settings.borderRadius === '50') {
-          canvasCtx.arc(camX + camWidth / 2, camY + camHeight / 2, camWidth / 2, 0, Math.PI * 2);
-        } else {
-          canvasCtx.rect(camX, camY, camWidth, camHeight);
-        }
-        canvasCtx.clip();
-
-        const scale = settings.zoomLevel;
-        canvasCtx.translate(camX + camWidth / 2, camY + camHeight / 2);
-        if (settings.mirrorMode) {
-          canvasCtx.scale(-scale, scale);
-        } else {
-          canvasCtx.scale(scale, scale);
-        }
-        canvasCtx.drawImage(cameraVideo, -camWidth / 2, -camHeight / 2, camWidth, camHeight);
-        canvasCtx.restore();
-      }
+      // 注意：录制时悬浮窗已被隐藏，不再绘制摄像头到视频中
+      // 如需在视频中包含摄像头，可在此添加逻辑
 
       animationId = requestAnimationFrame(drawFrame);
     }
@@ -434,11 +397,6 @@
     console.log('[Camera Overlay] Stopping recording...');
     isRecording = false;
 
-    // 恢复悬浮窗显示
-    if (overlay && settings.showOverlay) {
-      overlay.style.display = 'block';
-    }
-
     if (animationId) {
       cancelAnimationFrame(animationId);
       animationId = null;
@@ -452,6 +410,11 @@
     await new Promise(resolve => setTimeout(resolve, 500));
 
     cleanupRecording();
+
+    // 恢复悬浮窗显示
+    if (overlay && settings.showOverlay) {
+      overlay.style.display = 'block';
+    }
     console.log('[Camera Overlay] Recording cleanup done');
   }
 
