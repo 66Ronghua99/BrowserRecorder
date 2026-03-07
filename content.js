@@ -4,20 +4,71 @@
 (function() {
   'use strict';
 
-  // 配置
-  const CONFIG = {
-    width: 200,
-    height: 150,
-    defaultPosition: { right: 20, bottom: 20 },
-    zIndex: 999999
+  // 默认配置
+  const DEFAULT_SETTINGS = {
+    showOverlay: true,
+    windowSize: 'medium',
+    zoomLevel: 1,
+    borderRadius: '10',
+    mirrorMode: false
   };
+
+  // 窗口大小映射
+  const SIZE_MAP = {
+    small: { width: 160, height: 120 },
+    medium: { width: 200, height: 150 },
+    large: { width: 280, height: 210 },
+    xlarge: { width: 360, height: 270 }
+  };
+
+  let settings = { ...DEFAULT_SETTINGS };
+  let overlay = null;
+  let video = null;
+  let stream = null;
+
+  // 加载设置
+  function loadSettings() {
+    chrome.storage.sync.get(DEFAULT_SETTINGS, (stored) => {
+      settings = { ...DEFAULT_SETTINGS, ...stored };
+      applySettings();
+    });
+  }
+
+  // 应用设置到悬浮窗
+  function applySettings() {
+    if (!overlay) return;
+
+    // 显示/隐藏
+    overlay.style.display = settings.showOverlay ? 'block' : 'none';
+
+    // 窗口大小
+    const size = SIZE_MAP[settings.windowSize] || SIZE_MAP.medium;
+    overlay.style.width = size.width + 'px';
+    overlay.style.height = size.height + 'px';
+
+    // 圆角
+    overlay.style.borderRadius = settings.borderRadius === '50'
+      ? '50%'
+      : settings.borderRadius + 'px';
+
+    // 缩放（使用 transform-origin 实现裁切效果）
+    if (video) {
+      const scale = settings.zoomLevel;
+      const origin = 50 - (50 / scale);
+      video.style.transform = `scale(${scale})`;
+      video.style.transformOrigin = `${origin}% ${origin}%`;
+
+      // 镜像
+      video.style.transform += settings.mirrorMode ? ' scaleX(-1)' : '';
+    }
+  }
 
   // 创建悬浮窗容器
   function createOverlay() {
-    const overlay = document.createElement('div');
+    overlay = document.createElement('div');
     overlay.id = 'camera-overlay';
 
-    const video = document.createElement('video');
+    video = document.createElement('video');
     video.autoplay = true;
     video.playsInline = true;
     video.muted = true;
@@ -28,20 +79,22 @@
     if (document.body) {
       document.body.appendChild(overlay);
     } else {
-      // 如果 body 不存在，等待
       document.addEventListener('DOMContentLoaded', () => {
         document.body.appendChild(overlay);
       });
     }
 
-    console.log('[Camera Overlay] DOM created, element:', overlay);
+    // 启用拖动
+    enableDrag(overlay);
+
+    console.log('[Camera Overlay] DOM created');
     return { overlay, video };
   }
 
   // 获取摄像头权限并绑定视频流
-  async function initCamera(video) {
+  async function initCamera() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: false
       });
@@ -57,27 +110,26 @@
 
   // 显示错误信息
   function showError(message) {
-    const overlay = document.getElementById('camera-overlay');
     if (overlay) {
       overlay.innerHTML = `<div class="camera-error">${message}</div>`;
     }
   }
 
   // 拖动功能
-  function enableDrag(overlay) {
+  function enableDrag(el) {
     let isDragging = false;
     let startX, startY, initialX, initialY;
 
-    overlay.addEventListener('mousedown', (e) => {
+    el.addEventListener('mousedown', (e) => {
       isDragging = true;
       startX = e.clientX;
       startY = e.clientY;
 
-      const rect = overlay.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
       initialX = rect.left;
       initialY = rect.top;
 
-      overlay.style.cursor = 'grabbing';
+      el.style.cursor = 'grabbing';
     });
 
     document.addEventListener('mousemove', (e) => {
@@ -92,21 +144,21 @@
       // 限制在视口内
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      const overlayRect = overlay.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
 
-      newX = Math.max(0, Math.min(newX, viewportWidth - overlayRect.width));
-      newY = Math.max(0, Math.min(newY, viewportHeight - overlayRect.height));
+      newX = Math.max(0, Math.min(newX, viewportWidth - rect.width));
+      newY = Math.max(0, Math.min(newY, viewportHeight - rect.height));
 
-      overlay.style.left = newX + 'px';
-      overlay.style.top = newY + 'px';
-      overlay.style.right = 'auto';
-      overlay.style.bottom = 'auto';
+      el.style.left = newX + 'px';
+      el.style.top = newY + 'px';
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
     });
 
     document.addEventListener('mouseup', () => {
       if (isDragging) {
         isDragging = false;
-        overlay.style.cursor = 'move';
+        el.style.cursor = 'move';
       }
     });
   }
@@ -117,30 +169,37 @@
 
     // 避免重复初始化
     if (document.getElementById('camera-overlay')) {
-      console.log('[Camera Overlay] Already initialized');
+      // 已存在则加载设置并应用
+      overlay = document.getElementById('camera-overlay');
+      video = overlay.querySelector('video');
+      loadSettings();
       return;
     }
 
     // 确保全局摄像头权限已设置
-    console.log('[Camera Overlay] Requesting global camera permission...');
     await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ action: 'ensurePermission' }, (response) => {
-        console.log('[Camera Overlay] Permission response:', response);
-        resolve();
-      });
+      chrome.runtime.sendMessage({ action: 'ensurePermission' }, () => resolve());
     });
 
-    console.log('[Camera Overlay] Creating overlay...');
-    const { overlay, video } = createOverlay();
+    // 创建 DOM
+    createOverlay();
 
-    // 启用拖动
-    enableDrag(overlay);
+    // 加载设置
+    loadSettings();
 
-    console.log('[Camera Overlay] Requesting camera...');
-    // 获取摄像头
-    const success = await initCamera(video);
+    // 启动摄像头
+    const success = await initCamera();
     console.log('[Camera Overlay] Camera init result:', success);
   }
+
+  // 监听来自 popup 的消息
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'updateSettings') {
+      settings = { ...settings, ...request.settings };
+      applySettings();
+      sendResponse({ success: true });
+    }
+  });
 
   // 页面加载完成后初始化
   if (document.readyState === 'loading') {
