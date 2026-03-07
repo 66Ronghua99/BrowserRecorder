@@ -44,7 +44,14 @@
     overlay.style.setProperty('display', settings.showOverlay ? 'block' : 'none', 'important');
 
     // 窗口大小
-    const size = SIZE_MAP[settings.windowSize] || SIZE_MAP.medium;
+    let size = SIZE_MAP[settings.windowSize] || SIZE_MAP.medium;
+
+    // 圆形模式下改为正方形
+    if (settings.borderRadius === '50') {
+      const maxSize = Math.max(size.width, size.height);
+      size = { width: maxSize, height: maxSize };
+    }
+
     overlay.style.setProperty('width', size.width + 'px', 'important');
     overlay.style.setProperty('height', size.height + 'px', 'important');
 
@@ -52,18 +59,18 @@
     const radius = settings.borderRadius === '50' ? '50%' : settings.borderRadius + 'px';
     overlay.style.setProperty('border-radius', radius, 'important');
 
-    // 缩放（使用 transform-origin 实现裁切效果）
+    // 缩放 - 始终以中心放大
     if (video) {
       const scale = settings.zoomLevel;
-      const origin = 50 - (50 / scale);
 
-      // 镜像 + 缩放
+      // 镜像 + 缩放，始终以中心为原点
       if (settings.mirrorMode) {
         video.style.transform = `scaleX(-1) scale(${scale})`;
       } else {
         video.style.transform = `scale(${scale})`;
       }
-      video.style.transformOrigin = `${origin}% ${origin}%`;
+      // 始终以中心为变换原点
+      video.style.transformOrigin = 'center center';
     }
   }
 
