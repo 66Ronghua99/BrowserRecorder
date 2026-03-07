@@ -23,10 +23,11 @@
 
 ## TODO
 
-### P0-NEXT (Debug 阶段)
+### P0-NEXT (Debug 阶段 - 视频录制)
 
 - [ ] **Phase 1: 网页录屏功能** - Debug 调试
-  - 状态: 代码实现完成，手动测试发现问题待修复
+  - 状态: 录制功能基本可用，优化中
+  - 待修复: 视频中摄像头悬浮窗重复问题已修复
   - 参考: `.plan/checklist_screen_recording.md`
 
 ### Backlog

@@ -98,6 +98,7 @@ async function toggleRecording() {
 
 // 加载设置
 function loadSettings() {
+  // 读取所有设置（包括 showOverlay 用于恢复页面状态）
   chrome.storage.sync.get([
     'showOverlay',
     'windowSize',
@@ -105,7 +106,8 @@ function loadSettings() {
     'borderRadius',
     'mirrorMode'
   ], (settings) => {
-    document.getElementById('showOverlay').checked = settings.showOverlay !== false;
+    // 恢复 showOverlay 状态（用于刷新后恢复）
+    document.getElementById('showOverlay').checked = settings.showOverlay || false;
     document.getElementById('windowSize').value = settings.windowSize || 'medium';
     document.getElementById('zoomLevel').value = settings.zoomLevel || 1;
     document.getElementById('zoomValue').textContent = (settings.zoomLevel || 1) + 'x';
@@ -116,26 +118,30 @@ function loadSettings() {
 
 // 保存设置
 function saveSettings() {
-  const settings = {
-    showOverlay: document.getElementById('showOverlay').checked,
+  const showOverlay = document.getElementById('showOverlay').checked;
+
+  // 存储所有设置（包括 showOverlay，用于刷新后恢复）
+  const settingsToStore = {
+    showOverlay: showOverlay,
     windowSize: document.getElementById('windowSize').value,
     zoomLevel: parseFloat(document.getElementById('zoomLevel').value),
     borderRadius: document.getElementById('borderRadius').value,
     mirrorMode: document.getElementById('mirrorMode').checked
   };
 
-  console.log('[Popup] Saving settings:', settings);
+  console.log('[Popup] Saving settings:', settingsToStore);
 
-  chrome.storage.sync.set(settings, () => {
+  // 保存所有设置到存储
+  chrome.storage.sync.set(settingsToStore, () => {
     console.log('[Popup] Settings saved to storage');
 
-    // 通知当前活动标签页更新设置
+    // 通知当前活动标签页更新所有设置
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       console.log('[Popup] Active tab:', tabs[0]);
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, {
           action: 'updateSettings',
-          settings: settings
+          settings: settingsToStore
         }, (response) => {
           console.log('[Popup] Message response:', response);
         });

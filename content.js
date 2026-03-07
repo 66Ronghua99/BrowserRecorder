@@ -4,13 +4,18 @@
 (function() {
   'use strict';
 
-  // 默认配置
-  const DEFAULT_SETTINGS = {
-    showOverlay: true,
+  // 默认配置（其他设置存储在 chrome.storage，showOverlay 每页独立）
+  const STORED_SETTINGS_KEYS = ['windowSize', 'zoomLevel', 'borderRadius', 'mirrorMode'];
+  const DEFAULT_STORED_SETTINGS = {
     windowSize: 'medium',
     zoomLevel: 1,
     borderRadius: '10',
     mirrorMode: false
+  };
+
+  // 每页独立的运行时设置
+  let pageSettings = {
+    showOverlay: false // 每个页面默认关闭悬浮窗
   };
 
   // 窗口大小映射
@@ -21,10 +26,11 @@
     xlarge: { width: 360, height: 270 }
   };
 
-  let settings = { ...DEFAULT_SETTINGS };
+  let settings = { ...DEFAULT_STORED_SETTINGS };
   let overlay = null;
   let video = null;
   let stream = null;
+  let cameraInitialized = false; // 标记摄像头是否已初始化权限
 
   // 录制相关变量
   let isRecording = false;
@@ -38,11 +44,22 @@
   let audioContext = null;
   let audioDestination = null;
 
-  // 加载设置
+  // 加载设置（从存储中加载所有设置）
   function loadSettings() {
-    chrome.storage.sync.get(DEFAULT_SETTINGS, (stored) => {
-      settings = { ...DEFAULT_SETTINGS, ...stored };
+    // 从 chrome.storage 加载所有设置
+    chrome.storage.sync.get({ ...DEFAULT_STORED_SETTINGS, showOverlay: false }, (stored) => {
+      // 恢复页面级别的 showOverlay
+      const shouldShowOverlay = stored.showOverlay || false;
+      pageSettings.showOverlay = shouldShowOverlay;
+      // 合并存储的设置
+      settings = { ...DEFAULT_STORED_SETTINGS, ...stored };
       applySettings();
+
+      // 如果页面刷新后 showOverlay 为 true，需要初始化摄像头
+      if (shouldShowOverlay && !cameraInitialized) {
+        console.log('[Camera Overlay] Restoring camera after page refresh');
+        ensureCameraRunning();
+      }
     });
   }
 
@@ -52,10 +69,10 @@
 
     console.log('[Camera Overlay] applySettings called with:', settings);
 
-    // 显示/隐藏
-    overlay.style.setProperty('display', settings.showOverlay ? 'block' : 'none', 'important');
+    // 显示/隐藏（使用页面级别的 pageSettings.showOverlay）
+    overlay.style.setProperty('display', pageSettings.showOverlay ? 'block' : 'none', 'important');
 
-    // 窗口大小
+    // 窗口大小（使用存储的设置）
     let size = SIZE_MAP[settings.windowSize] || SIZE_MAP.medium;
 
     // 圆形模式下改为正方形
@@ -67,11 +84,11 @@
     overlay.style.setProperty('width', size.width + 'px', 'important');
     overlay.style.setProperty('height', size.height + 'px', 'important');
 
-    // 圆角
+    // 圆角（使用存储的设置）
     const radius = settings.borderRadius === '50' ? '50%' : settings.borderRadius + 'px';
     overlay.style.setProperty('border-radius', radius, 'important');
 
-    // 缩放 - 始终以中心放大
+    // 缩放 - 始终以中心放大（使用存储的设置）
     if (video) {
       const scale = settings.zoomLevel;
 
@@ -144,6 +161,11 @@
     let startX, startY, initialX, initialY;
 
     el.addEventListener('mousedown', (e) => {
+      // 用户点击悬浮窗时，如果摄像头还未初始化，则请求权限
+      if (!cameraInitialized && pageSettings.showOverlay) {
+        ensureCameraRunning();
+      }
+
       isDragging = true;
       startX = e.clientX;
       startY = e.clientY;
@@ -196,10 +218,7 @@
       overlay = document.getElementById('camera-overlay');
       video = overlay.querySelector('video');
       loadSettings();
-      // 如果需要显示且摄像头未启动，则启动
-      if (settings.showOverlay && (!stream || !stream.active)) {
-        ensureCameraRunning();
-      }
+      // 只在用户点击悬浮窗时才请求摄像头权限，不在页面加载时自动请求
       return;
     }
 
@@ -209,10 +228,25 @@
     // 加载设置
     loadSettings();
 
-    // 只在用户启用悬浮窗时才启动摄像头
-    if (settings.showOverlay) {
-      await ensureCameraRunning();
-    }
+    // 监听标签页切换：当用户切换到其他标签时，自动关闭悬浮窗
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && pageSettings.showOverlay) {
+        console.log('[Camera Overlay] Tab hidden, disabling overlay');
+        pageSettings.showOverlay = false;
+        // 更新存储
+        chrome.storage.sync.set({ showOverlay: false });
+        // 停止摄像头
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          stream = null;
+        }
+        cameraInitialized = false;
+        // 隐藏悬浮窗
+        if (overlay) {
+          overlay.style.display = 'none';
+        }
+      }
+    });
 
     console.log('[Camera Overlay] Init complete');
   }
@@ -240,6 +274,7 @@
     // 启动摄像头
     const success = await initCamera();
     if (success) {
+      cameraInitialized = true; // 标记摄像头已初始化
       applySettings();
     }
   }
@@ -248,12 +283,35 @@
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('[Camera Overlay] Received message:', request);
     if (request.action === 'updateSettings') {
-      const wasEnabled = settings.showOverlay;
-      settings = { ...settings, ...request.settings };
-      console.log('[Camera Overlay] Applying settings:', settings);
+      // 分离页面级别设置和存储设置
+      const showOverlay = request.settings.showOverlay;
+      const wasEnabled = pageSettings.showOverlay;
+
+      // 更新页面级别设置并保存到存储
+      if (showOverlay !== undefined) {
+        pageSettings.showOverlay = showOverlay;
+        // 保存 showOverlay 到存储（用于切换回来时恢复）
+        chrome.storage.sync.set({ showOverlay: showOverlay });
+      }
+
+      // 分离需要存储的设置（跨页面共享）
+      const settingsToStore = {};
+      STORED_SETTINGS_KEYS.forEach(key => {
+        if (request.settings[key] !== undefined) {
+          settingsToStore[key] = request.settings[key];
+          settings[key] = request.settings[key];
+        }
+      });
+
+      // 保存其他设置到 chrome.storage
+      if (Object.keys(settingsToStore).length > 0) {
+        chrome.storage.sync.set(settingsToStore);
+      }
+
+      console.log('[Camera Overlay] Applying settings:', { pageSettings, settings });
 
       // 用户启用悬浮窗时，启动摄像头
-      if (request.settings.showOverlay && !wasEnabled) {
+      if (showOverlay && !wasEnabled) {
         ensureCameraRunning().then(() => {
           applySettings();
           sendResponse({ success: true });
@@ -262,11 +320,12 @@
       }
 
       // 用户关闭悬浮窗时，停止摄像头
-      if (!request.settings.showOverlay && wasEnabled) {
+      if (!showOverlay && wasEnabled) {
         if (stream) {
           stream.getTracks().forEach(track => track.stop());
           stream = null;
         }
+        cameraInitialized = false; // 重置标志，允许下次重新请求权限
       }
 
       applySettings();
@@ -451,7 +510,7 @@
     cleanupRecording();
 
     // 恢复悬浮窗显示
-    if (overlay && settings.showOverlay) {
+    if (overlay && pageSettings.showOverlay) {
       overlay.style.display = 'block';
     }
     console.log('[Camera Overlay] Recording cleanup done');
