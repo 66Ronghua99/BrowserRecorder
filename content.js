@@ -196,35 +196,79 @@
       overlay = document.getElementById('camera-overlay');
       video = overlay.querySelector('video');
       loadSettings();
+      // 如果需要显示且摄像头未启动，则启动
+      if (settings.showOverlay && (!stream || !stream.active)) {
+        ensureCameraRunning();
+      }
       return;
     }
 
-    // 确保全局摄像头权限已设置
-    await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ action: 'ensurePermission' }, () => resolve());
-    });
-
-    // 创建 DOM
+    // 创建 DOM（初始隐藏，等待用户启用）
     createOverlay();
 
     // 加载设置
     loadSettings();
 
+    // 只在用户启用悬浮窗时才启动摄像头
+    if (settings.showOverlay) {
+      await ensureCameraRunning();
+    }
+
+    console.log('[Camera Overlay] Init complete');
+  }
+
+  // 确保摄像头已启动（懒加载）
+  async function ensureCameraRunning() {
+    if (stream && stream.active) {
+      console.log('[Camera Overlay] Camera already running');
+      return;
+    }
+
+    console.log('[Camera Overlay] Starting camera on user request...');
+
+    // 创建 video 元素（如果还没有）
+    if (!video) {
+      video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      if (overlay) {
+        overlay.appendChild(video);
+      }
+    }
+
     // 启动摄像头
     const success = await initCamera();
-
-    // 再次应用设置（确保 transform 等属性生效）
-    applySettings();
-
-    console.log('[Camera Overlay] Camera init result:', success);
+    if (success) {
+      applySettings();
+    }
   }
 
   // 监听来自 popup 的消息
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('[Camera Overlay] Received message:', request);
     if (request.action === 'updateSettings') {
+      const wasEnabled = settings.showOverlay;
       settings = { ...settings, ...request.settings };
       console.log('[Camera Overlay] Applying settings:', settings);
+
+      // 用户启用悬浮窗时，启动摄像头
+      if (request.settings.showOverlay && !wasEnabled) {
+        ensureCameraRunning().then(() => {
+          applySettings();
+          sendResponse({ success: true });
+        });
+        return true; // 异步响应
+      }
+
+      // 用户关闭悬浮窗时，停止摄像头
+      if (!request.settings.showOverlay && wasEnabled) {
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          stream = null;
+        }
+      }
+
       applySettings();
       sendResponse({ success: true });
     }
