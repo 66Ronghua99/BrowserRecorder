@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadSettings();
 
   // 加载录制状态
-  const { isRecording: savedRecording } = await chrome.storage.sync.get('isRecording');
+  const { isRecording: savedRecording } = await chrome.storage.local.get('isRecording');
   updateRecordingUI(savedRecording || false);
 
   // 缩放滑块显示当前值
@@ -19,7 +19,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 录制按钮
   document.getElementById('recordBtn').addEventListener('click', toggleRecording);
+
+  // 监听录制状态变化（例如浏览器 UI 结束共享）
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.isRecording) {
+      updateRecordingUI(Boolean(changes.isRecording.newValue));
+    }
+  });
 });
+
+async function setRecordingState(recording) {
+  await chrome.storage.local.set({ isRecording: recording });
+  await chrome.storage.sync.set({ isRecording: recording });
+}
 
 // 更新录制 UI 状态
 function updateRecordingUI(recording) {
@@ -45,7 +57,7 @@ function updateRecordingUI(recording) {
 // 切换录制状态
 async function toggleRecording() {
   // 获取当前录制状态
-  const { isRecording } = await chrome.storage.sync.get('isRecording');
+  const { isRecording } = await chrome.storage.local.get('isRecording');
   const currentlyRecording = isRecording || false;
 
   if (!currentlyRecording) {
@@ -63,7 +75,7 @@ async function toggleRecording() {
 
       if (response && response.success) {
         // 保存录制状态
-        await chrome.storage.sync.set({ isRecording: true });
+        await setRecordingState(true);
         updateRecordingUI(true);
         console.log('[Popup] Recording started');
       } else {
@@ -83,14 +95,14 @@ async function toggleRecording() {
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'stopRecording' });
 
       // 清除录制状态
-      await chrome.storage.sync.set({ isRecording: false });
+      await setRecordingState(false);
       updateRecordingUI(false);
       document.getElementById('recordingStatusText').textContent = response?.success ? '录制完成！' : '录制已停止';
       console.log('[Popup] Recording stopped');
     } catch (error) {
       console.error('[Popup] Error stopping recording:', error);
       // 即使出错也清除状态
-      await chrome.storage.sync.set({ isRecording: false });
+      await setRecordingState(false);
       updateRecordingUI(false);
     }
   }
@@ -104,7 +116,9 @@ function loadSettings() {
     'windowSize',
     'zoomLevel',
     'borderRadius',
-    'mirrorMode'
+    'mirrorMode',
+    'recordingResolution',
+    'recordingFormat'
   ], (settings) => {
     // 恢复 showOverlay 状态（用于刷新后恢复）
     document.getElementById('showOverlay').checked = settings.showOverlay || false;
@@ -113,6 +127,8 @@ function loadSettings() {
     document.getElementById('zoomValue').textContent = (settings.zoomLevel || 1) + 'x';
     document.getElementById('borderRadius').value = settings.borderRadius || '10';
     document.getElementById('mirrorMode').checked = settings.mirrorMode || false;
+    document.getElementById('recordingResolution').value = settings.recordingResolution || '1080p';
+    document.getElementById('recordingFormat').value = settings.recordingFormat || 'mp4';
   });
 }
 
@@ -126,7 +142,9 @@ function saveSettings() {
     windowSize: document.getElementById('windowSize').value,
     zoomLevel: parseFloat(document.getElementById('zoomLevel').value),
     borderRadius: document.getElementById('borderRadius').value,
-    mirrorMode: document.getElementById('mirrorMode').checked
+    mirrorMode: document.getElementById('mirrorMode').checked,
+    recordingResolution: document.getElementById('recordingResolution').value,
+    recordingFormat: document.getElementById('recordingFormat').value
   };
 
   console.log('[Popup] Saving settings:', settingsToStore);

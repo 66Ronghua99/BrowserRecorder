@@ -266,6 +266,25 @@
     </div>
   </div>
 
+  <!-- 录制尺寸 -->
+  <div class="control-group">
+    <label>录制尺寸 (16:9)</label>
+    <select id="recordingResolution">
+      <option value="1080p" selected>1080p (1920x1080)</option>
+      <option value="900p">900p (1600x900)</option>
+      <option value="720p">720p (1280x720)</option>
+    </select>
+  </div>
+
+  <!-- 导出格式 -->
+  <div class="control-group">
+    <label>导出格式</label>
+    <select id="recordingFormat">
+      <option value="mp4" selected>MP4优先（不支持则WebM）</option>
+      <option value="webm">仅WebM</option>
+    </select>
+  </div>
+
   <!-- 保存按钮 -->
   <button class="btn btn-primary" id="saveBtn">保存设置</button>
 

@@ -5,12 +5,21 @@
   'use strict';
 
   // 默认配置（其他设置存储在 chrome.storage，showOverlay 每页独立）
-  const STORED_SETTINGS_KEYS = ['windowSize', 'zoomLevel', 'borderRadius', 'mirrorMode'];
+  const STORED_SETTINGS_KEYS = [
+    'windowSize',
+    'zoomLevel',
+    'borderRadius',
+    'mirrorMode',
+    'recordingResolution',
+    'recordingFormat'
+  ];
   const DEFAULT_STORED_SETTINGS = {
     windowSize: 'medium',
     zoomLevel: 1,
     borderRadius: '10',
-    mirrorMode: false
+    mirrorMode: false,
+    recordingResolution: '1080p',
+    recordingFormat: 'mp4'
   };
 
   // 每页独立的运行时设置
@@ -26,6 +35,13 @@
     xlarge: { width: 360, height: 270 }
   };
 
+  // 录制尺寸映射（统一为 16:9）
+  const RECORDING_SIZE_MAP = {
+    '1080p': { width: 1920, height: 1080 },
+    '900p': { width: 1600, height: 900 },
+    '720p': { width: 1280, height: 720 }
+  };
+
   let settings = { ...DEFAULT_STORED_SETTINGS };
   let overlay = null;
   let video = null;
@@ -39,8 +55,12 @@
   let canvas = null;
   let canvasCtx = null;
   let animationId = null;
+  let tabVideoElement = null;
   let tabCaptureStream = null;
   let micStream = null;
+  let recordingStream = null;
+  let recordingMimeType = 'video/webm';
+  let recordingExtension = 'webm';
   let audioContext = null;
   let audioDestination = null;
 
@@ -347,143 +367,189 @@
     }
   });
 
+  function getRecordingSize() {
+    return RECORDING_SIZE_MAP[settings.recordingResolution] || RECORDING_SIZE_MAP['1080p'];
+  }
+
+  function chooseRecorderMimeType() {
+    const mp4Types = [
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4;codecs=h264,aac',
+      'video/mp4'
+    ];
+    const webmTypes = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm'
+    ];
+
+    const preferredTypes = settings.recordingFormat === 'webm'
+      ? [...webmTypes, ...mp4Types]
+      : [...mp4Types, ...webmTypes];
+
+    for (const type of preferredTypes) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        return type;
+      }
+    }
+    return null;
+  }
+
+  async function setupTabRenderCanvas(width, height) {
+    canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvasCtx = canvas.getContext('2d');
+
+    tabVideoElement = document.createElement('video');
+    tabVideoElement.srcObject = tabCaptureStream;
+    tabVideoElement.muted = true;
+    tabVideoElement.playsInline = true;
+    tabVideoElement.preload = 'auto';
+
+    await new Promise(resolve => {
+      if (tabVideoElement.readyState >= 1) {
+        resolve();
+      } else {
+        tabVideoElement.onloadedmetadata = resolve;
+      }
+    });
+    await tabVideoElement.play();
+  }
+
+  function startCanvasRenderLoop() {
+    function drawFrame() {
+      if (!isRecording || !canvasCtx || !canvas || !tabVideoElement) return;
+
+      if (tabVideoElement.readyState >= 2) {
+        const canvasAspect = canvas.width / canvas.height;
+        const tabAspect = tabVideoElement.videoWidth / tabVideoElement.videoHeight;
+        let sx = 0;
+        let sy = 0;
+        let sw = tabVideoElement.videoWidth;
+        let sh = tabVideoElement.videoHeight;
+
+        if (tabAspect > canvasAspect) {
+          sw = tabVideoElement.videoHeight * canvasAspect;
+          sx = (tabVideoElement.videoWidth - sw) / 2;
+        } else {
+          sh = tabVideoElement.videoWidth / canvasAspect;
+          sy = (tabVideoElement.videoHeight - sh) / 2;
+        }
+
+        canvasCtx.drawImage(tabVideoElement, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      }
+
+      animationId = requestAnimationFrame(drawFrame);
+    }
+
+    animationId = requestAnimationFrame(drawFrame);
+  }
+
   // 开始录制
   async function startRecording() {
-    console.log('[Camera Overlay] startRecording called, current isRecording:', isRecording);
-
     if (isRecording) {
       throw new Error('Already recording');
     }
 
-    console.log('[Camera Overlay] Starting recording...');
     recordedChunks = [];
+    const recordingSize = getRecordingSize();
 
     try {
-      // 使用 getDisplayMedia 捕获当前标签页（在 content script 中可用）
-      console.log('[Camera Overlay] Calling getDisplayMedia...');
-      const tabCaptureStream = await navigator.mediaDevices.getDisplayMedia({
+      tabCaptureStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          width: 1920,
-          height: 1080,
           frameRate: 30
         },
-        audio: true // 捕获标签页音频
-      });
-
-      console.log('[Camera Overlay] Tab capture stream obtained:', tabCaptureStream.id);
-
-      // 监听用户停止共享
-      tabCaptureStream.getVideoTracks()[0].onended = () => {
-        console.log('[Camera Overlay] User stopped sharing via browser UI');
-        stopRecording();
-      };
-
-      // 2. 获取麦克风
-      console.log('[Camera Overlay] Getting microphone...');
-      const micStream = await navigator.mediaDevices.getUserMedia({
         audio: true
       });
-      console.log('[Camera Overlay] Microphone obtained');
 
-      // 3. 创建 Canvas 用于合成
-      canvas = document.createElement('canvas');
-      canvas.width = 1920;
-      canvas.height = 1080;
-      canvasCtx = canvas.getContext('2d');
+      tabCaptureStream.getVideoTracks()[0].onended = () => {
+        if (isRecording) {
+          stopRecording().catch(error => {
+            console.error('[Camera Overlay] Failed to stop after user ended sharing:', error);
+          });
+        }
+      };
 
-      // 4. 设置音频混合 (Web Audio API)
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (error) {
+        micStream = null;
+        console.warn('[Camera Overlay] Microphone unavailable, continue without mic:', error);
+      }
+      await setupTabRenderCanvas(recordingSize.width, recordingSize.height);
+
       audioContext = new AudioContext();
       audioDestination = audioContext.createMediaStreamDestination();
 
-      // 混合 Tab 音频
       if (tabCaptureStream.getAudioTracks().length > 0) {
         const tabAudioSource = audioContext.createMediaStreamSource(tabCaptureStream);
         tabAudioSource.connect(audioDestination);
       }
 
-      // 混合麦克风音频
-      const micAudioSource = audioContext.createMediaStreamSource(micStream);
-      micAudioSource.connect(audioDestination);
+      if (micStream && micStream.getAudioTracks().length > 0) {
+        const micAudioSource = audioContext.createMediaStreamSource(micStream);
+        micAudioSource.connect(audioDestination);
+      }
 
-      // 5. 创建混合视频流
-      const combinedStream = new MediaStream([
-        ...canvas.captureStream(30).getVideoTracks(),
+      const canvasStream = canvas.captureStream(30);
+      const canvasVideoTrack = canvasStream.getVideoTracks()[0];
+      if (canvasVideoTrack?.applyConstraints) {
+        try {
+          await canvasVideoTrack.applyConstraints({ frameRate: 30 });
+        } catch (error) {
+          console.warn('[Camera Overlay] Failed to apply canvas frameRate constraints:', error);
+        }
+      }
+
+      recordingStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
         ...audioDestination.stream.getAudioTracks()
       ]);
 
-      // 6. 创建 MediaRecorder
-      mediaRecorder = new MediaRecorder(combinedStream, {
-        mimeType: 'video/webm;codecs=vp9'
+      recordingMimeType = chooseRecorderMimeType();
+      if (!recordingMimeType) {
+        throw new Error('No supported recording format');
+      }
+      recordingExtension = recordingMimeType.includes('mp4') ? 'mp4' : 'webm';
+      if (settings.recordingFormat === 'mp4' && recordingExtension !== 'mp4') {
+        console.warn('[Camera Overlay] MP4 not supported on this browser, fallback to WebM');
+      }
+
+      mediaRecorder = new MediaRecorder(recordingStream, {
+        mimeType: recordingMimeType,
+        videoBitsPerSecond: 6000000,
+        audioBitsPerSecond: 128000
       });
 
       mediaRecorder.ondataavailable = (event) => {
-        console.log('[Camera Overlay] Data available:', event.data.size);
         if (event.data.size > 0) {
           recordedChunks.push(event.data);
         }
       };
 
       mediaRecorder.onstop = () => {
-        console.log('[Camera Overlay] Recording stopped, chunks:', recordedChunks.length);
+        chrome.storage.local.set({ isRecording: false });
+        chrome.storage.sync.set({ isRecording: false });
         downloadRecording();
       };
 
-      // 7. 开始录制和渲染
-      mediaRecorder.start(1000); // 每秒收集一次数据
       isRecording = true;
-      console.log('[Camera Overlay] MediaRecorder started, isRecording:', isRecording);
-
-      // 8. 开始渲染画面
-      await renderRecording(tabCaptureStream);
-
-      console.log('[Camera Overlay] Recording started successfully');
+      chrome.storage.local.set({ isRecording: true });
+      chrome.storage.sync.set({ isRecording: true });
+      startCanvasRenderLoop();
+      mediaRecorder.start(1000);
+      console.log('[Camera Overlay] Recording started:', {
+        size: recordingSize,
+        format: recordingMimeType
+      });
     } catch (error) {
-      console.error('[Camera Overlay] Failed to start recording:', error);
       isRecording = false;
+      chrome.storage.local.set({ isRecording: false });
+      chrome.storage.sync.set({ isRecording: false });
       cleanupRecording();
       throw error;
     }
-  }
-
-  // 渲染录制画面（Tab + 摄像头）
-  async function renderRecording(tabStream) {
-    const tabVideo = document.createElement('video');
-    tabVideo.srcObject = tabStream;
-    tabVideo.muted = true;
-    await tabVideo.play();
-
-    // 摄像头视频（如果存在）
-    let cameraVideo = null;
-    if (video && video.srcObject && video.srcObject.getVideoTracks().length > 0) {
-      cameraVideo = video;
-    }
-
-    function drawFrame() {
-      if (!isRecording) return;
-
-      // 绘制 Tab 画面（全屏填充，保持比例裁剪）
-      const canvasAspect = canvas.width / canvas.height;
-      const tabAspect = tabVideo.videoWidth / tabVideo.videoHeight;
-
-      let sx = 0, sy = 0, sw = tabVideo.videoWidth, sh = tabVideo.videoHeight;
-
-      if (tabAspect > canvasAspect) {
-        sw = tabVideo.videoHeight * canvasAspect;
-        sx = (tabVideo.videoWidth - sw) / 2;
-      } else {
-        sh = tabVideo.videoWidth / canvasAspect;
-        sy = (tabVideo.videoHeight - sh) / 2;
-      }
-
-      canvasCtx.drawImage(tabVideo, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
-      // 注意：摄像头悬浮窗通过 DOM 显示，由 getDisplayMedia 直接录制
-      // 不需要在 Canvas 中额外绘制
-
-      animationId = requestAnimationFrame(drawFrame);
-    }
-
-    drawFrame();
   }
 
   // 停止录制
@@ -492,20 +558,19 @@
       throw new Error('Not recording');
     }
 
-    console.log('[Camera Overlay] Stopping recording...');
     isRecording = false;
+    chrome.storage.local.set({ isRecording: false });
+    chrome.storage.sync.set({ isRecording: false });
 
-    if (animationId) {
-      cancelAnimationFrame(animationId);
-      animationId = null;
-    }
-
+    let recorderStopPromise = Promise.resolve();
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      recorderStopPromise = new Promise(resolve => {
+        mediaRecorder.addEventListener('stop', resolve, { once: true });
+      });
       mediaRecorder.stop();
     }
 
-    // 等待数据收集完成
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await recorderStopPromise;
 
     cleanupRecording();
 
@@ -513,7 +578,6 @@
     if (overlay && pageSettings.showOverlay) {
       overlay.style.display = 'block';
     }
-    console.log('[Camera Overlay] Recording cleanup done');
   }
 
   // 清理录制资源
@@ -526,6 +590,22 @@
     if (micStream) {
       micStream.getTracks().forEach(track => track.stop());
       micStream = null;
+    }
+
+    if (recordingStream) {
+      recordingStream.getTracks().forEach(track => track.stop());
+      recordingStream = null;
+    }
+
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+      animationId = null;
+    }
+
+    if (tabVideoElement) {
+      tabVideoElement.pause();
+      tabVideoElement.srcObject = null;
+      tabVideoElement = null;
     }
 
     if (audioContext) {
@@ -545,20 +625,19 @@
       return;
     }
 
-    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const blob = new Blob(recordedChunks, { type: recordingMimeType || 'video/webm' });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `recording_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.webm`;
+    a.download = `recording_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.${recordingExtension}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
 
     URL.revokeObjectURL(url);
     recordedChunks = [];
-
-    console.log('[Camera Overlay] Recording downloaded');
+    console.log('[Camera Overlay] Recording downloaded:', a.download);
   }
 
   // 页面加载完成后初始化
