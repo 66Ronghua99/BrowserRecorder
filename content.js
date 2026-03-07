@@ -330,6 +330,11 @@
       isRecording = true;
       console.log('[Camera Overlay] MediaRecorder started, isRecording:', isRecording);
 
+      // 隐藏悬浮窗（避免被录制进去）
+      if (overlay) {
+        overlay.style.display = 'none';
+      }
+
       // 8. 开始渲染画面
       await renderRecording(tabCaptureStream);
 
@@ -428,6 +433,11 @@
 
     console.log('[Camera Overlay] Stopping recording...');
     isRecording = false;
+
+    // 恢复悬浮窗显示
+    if (overlay && settings.showOverlay) {
+      overlay.style.display = 'block';
+    }
 
     if (animationId) {
       cancelAnimationFrame(animationId);
