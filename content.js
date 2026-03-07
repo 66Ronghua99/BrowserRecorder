@@ -38,31 +38,32 @@
   function applySettings() {
     if (!overlay) return;
 
+    console.log('[Camera Overlay] applySettings called with:', settings);
+
     // 显示/隐藏
-    overlay.style.display = settings.showOverlay ? 'block' : 'none';
+    overlay.style.setProperty('display', settings.showOverlay ? 'block' : 'none', 'important');
 
     // 窗口大小
     const size = SIZE_MAP[settings.windowSize] || SIZE_MAP.medium;
-    overlay.style.width = size.width + 'px !important';
-    overlay.style.height = size.height + 'px !important';
+    overlay.style.setProperty('width', size.width + 'px', 'important');
+    overlay.style.setProperty('height', size.height + 'px', 'important');
 
     // 圆角
-    overlay.style.borderRadius = settings.borderRadius === '50'
-      ? '50% !important'
-      : settings.borderRadius + 'px !important';
+    const radius = settings.borderRadius === '50' ? '50%' : settings.borderRadius + 'px';
+    overlay.style.setProperty('border-radius', radius, 'important');
 
     // 缩放（使用 transform-origin 实现裁切效果）
     if (video) {
       const scale = settings.zoomLevel;
       const origin = 50 - (50 / scale);
-      let transform = `scale(${scale})`;
-      video.style.transform = transform;
-      video.style.transformOrigin = `${origin}% ${origin}%`;
 
-      // 镜像
+      // 镜像 + 缩放
       if (settings.mirrorMode) {
         video.style.transform = `scaleX(-1) scale(${scale})`;
+      } else {
+        video.style.transform = `scale(${scale})`;
       }
+      video.style.transformOrigin = `${origin}% ${origin}%`;
     }
   }
 

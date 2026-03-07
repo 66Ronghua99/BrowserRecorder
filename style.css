@@ -1,20 +1,20 @@
 /* Camera Overlay Styles */
 
 #camera-overlay {
-  position: fixed !important;
-  right: 20px !important;
-  bottom: 20px !important;
-  width: 200px !important;
-  height: 150px !important;
-  border-radius: 10px !important;
-  overflow: hidden !important;
-  cursor: move !important;
-  z-index: 2147483647 !important;
-  background: #000 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 200px;
+  height: 150px;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: move;
+  z-index: 2147483647;
+  background: #000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: block;
+  visibility: visible;
+  opacity: 1;
 }
 
 #camera-overlay video {
