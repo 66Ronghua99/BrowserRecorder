@@ -1,11 +1,13 @@
 // Camera Overlay - Popup Script
 // 处理用户设置界面
 
-let isRecording = false;
-
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // 加载保存的设置
   loadSettings();
+
+  // 加载录制状态
+  const { isRecording: savedRecording } = await chrome.storage.sync.get('isRecording');
+  updateRecordingUI(savedRecording || false);
 
   // 缩放滑块显示当前值
   document.getElementById('zoomLevel').addEventListener('input', (e) => {
@@ -19,13 +21,34 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('recordBtn').addEventListener('click', toggleRecording);
 });
 
-// 切换录制状态
-async function toggleRecording() {
+// 更新录制 UI 状态
+function updateRecordingUI(recording) {
   const recordBtn = document.getElementById('recordBtn');
   const recordingDot = document.getElementById('recordingDot');
   const statusText = document.getElementById('recordingStatusText');
 
-  if (!isRecording) {
+  if (recording) {
+    recordBtn.textContent = '停止录制';
+    recordBtn.classList.remove('btn-record');
+    recordBtn.classList.add('btn-stop');
+    recordingDot.classList.add('active');
+    statusText.textContent = '录制中...';
+  } else {
+    recordBtn.textContent = '开始录制';
+    recordBtn.classList.remove('btn-stop');
+    recordBtn.classList.add('btn-record');
+    recordingDot.classList.remove('active');
+    statusText.textContent = '';
+  }
+}
+
+// 切换录制状态
+async function toggleRecording() {
+  // 获取当前录制状态
+  const { isRecording } = await chrome.storage.sync.get('isRecording');
+  const currentlyRecording = isRecording || false;
+
+  if (!currentlyRecording) {
     // 开始录制
     try {
       // 获取当前活动标签页
@@ -39,20 +62,17 @@ async function toggleRecording() {
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'startRecording' });
 
       if (response && response.success) {
-        isRecording = true;
-        recordBtn.textContent = '停止录制';
-        recordBtn.classList.remove('btn-record');
-        recordBtn.classList.add('btn-stop');
-        recordingDot.classList.add('active');
-        statusText.textContent = '录制中...';
+        // 保存录制状态
+        await chrome.storage.sync.set({ isRecording: true });
+        updateRecordingUI(true);
         console.log('[Popup] Recording started');
       } else {
         console.error('[Popup] Failed to start recording:', response?.error);
-        statusText.textContent = '录制失败: ' + (response?.error || '未知错误');
+        document.getElementById('recordingStatusText').textContent = '录制失败: ' + (response?.error || '未知错误');
       }
     } catch (error) {
       console.error('[Popup] Error starting recording:', error);
-      statusText.textContent = '录制失败: ' + error.message;
+      document.getElementById('recordingStatusText').textContent = '录制失败: ' + error.message;
     }
   } else {
     // 停止录制
@@ -62,15 +82,16 @@ async function toggleRecording() {
 
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'stopRecording' });
 
-      isRecording = false;
-      recordBtn.textContent = '开始录制';
-      recordBtn.classList.remove('btn-stop');
-      recordBtn.classList.add('btn-record');
-      recordingDot.classList.remove('active');
-      statusText.textContent = response?.success ? '录制完成！' : '录制已停止';
+      // 清除录制状态
+      await chrome.storage.sync.set({ isRecording: false });
+      updateRecordingUI(false);
+      document.getElementById('recordingStatusText').textContent = response?.success ? '录制完成！' : '录制已停止';
       console.log('[Popup] Recording stopped');
     } catch (error) {
       console.error('[Popup] Error stopping recording:', error);
+      // 即使出错也清除状态
+      await chrome.storage.sync.set({ isRecording: false });
+      updateRecordingUI(false);
     }
   }
 }

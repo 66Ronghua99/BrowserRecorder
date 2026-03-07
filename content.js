@@ -246,6 +246,8 @@
 
   // 开始录制
   async function startRecording() {
+    console.log('[Camera Overlay] startRecording called, current isRecording:', isRecording);
+
     if (isRecording) {
       throw new Error('Already recording');
     }
@@ -255,6 +257,7 @@
 
     try {
       // 使用 getDisplayMedia 捕获当前标签页（在 content script 中可用）
+      console.log('[Camera Overlay] Calling getDisplayMedia...');
       const tabCaptureStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: 1920,
@@ -264,12 +267,20 @@
         audio: true // 捕获标签页音频
       });
 
-      console.log('[Camera Overlay] Tab capture stream:', tabCaptureStream);
+      console.log('[Camera Overlay] Tab capture stream obtained:', tabCaptureStream.id);
+
+      // 监听用户停止共享
+      tabCaptureStream.getVideoTracks()[0].onended = () => {
+        console.log('[Camera Overlay] User stopped sharing via browser UI');
+        stopRecording();
+      };
 
       // 2. 获取麦克风
+      console.log('[Camera Overlay] Getting microphone...');
       const micStream = await navigator.mediaDevices.getUserMedia({
         audio: true
       });
+      console.log('[Camera Overlay] Microphone obtained');
 
       // 3. 创建 Canvas 用于合成
       canvas = document.createElement('canvas');
@@ -303,6 +314,7 @@
       });
 
       mediaRecorder.ondataavailable = (event) => {
+        console.log('[Camera Overlay] Data available:', event.data.size);
         if (event.data.size > 0) {
           recordedChunks.push(event.data);
         }
@@ -316,6 +328,7 @@
       // 7. 开始录制和渲染
       mediaRecorder.start(1000); // 每秒收集一次数据
       isRecording = true;
+      console.log('[Camera Overlay] MediaRecorder started, isRecording:', isRecording);
 
       // 8. 开始渲染画面
       await renderRecording(tabCaptureStream);
@@ -323,6 +336,7 @@
       console.log('[Camera Overlay] Recording started successfully');
     } catch (error) {
       console.error('[Camera Overlay] Failed to start recording:', error);
+      isRecording = false;
       cleanupRecording();
       throw error;
     }
