@@ -23,27 +23,38 @@
 
 ## TODO
 
-- (none - MVP completed)
+### P0-NEXT (Debug 阶段)
+
+- [ ] **Phase 1: 网页录屏功能** - Debug 调试
+  - 状态: 代码实现完成，手动测试发现问题待修复
+  - 参考: `.plan/checklist_screen_recording.md`
+
+### Backlog
+
+- [ ] Phase 2: MP4 输出 (FFmpeg.wasm)
+- [ ] 快捷键控制
+- [ ] 录制时长限制
+- [ ] 位置记忆
 
 ## DONE
 
-- [x] 创建插件基础结构 - Evidence: manifest.json, content.js, style.css
-- [x] 实现摄像头悬浮窗显示 - Evidence: content.js initCamera()
-- [x] 实现拖动功能 - Evidence: content.js enableDrag()
-- [x] 错误处理 - Evidence: content.js showError()
-- [x] 统一权限管理 - Evidence: background.js contentSettings
-- [x] 控制面板 - Evidence: popup.html, popup.js
-- [x] 样式优化 - Evidence: content.js applySettings()
-- [x] 远程仓库推送 - Evidence: github.com/66Ronghua99/camera-overlay
+- [x] Phase 1: 摄像头悬浮窗 MVP - Evidence: github.com/66Ronghua99/camera-overlay
+- [x] Phase 1: 网页录屏功能 (WebM) - 代码实现完成 - Evidence:
+  - popup.js: 录制按钮事件处理
+  - content.js: startRecording/stopRecording/Canvas合成/音频混合/MediaRecorder
+  - background.js: tabCapture 消息处理
 
 ## Reference List
 
 - 技术栈: Chrome Extension Manifest V3
 - 远程仓库: https://github.com/66Ronghua99/camera-overlay
-- 设计文档: `.plan/20260307_camera_overlay.md`
+- 设计文档:
+  - `.plan/20260307_camera_overlay.md`
+  - `.plan/20260307_screen_recording_closed_loop_v0.md`
+  - `.plan/checklist_screen_recording.md`
 
 ---
 
 ## L1 Loading
 
-当前阶段: MVP 已完成
+当前阶段: Phase 1 - 网页录屏功能 (进行中)

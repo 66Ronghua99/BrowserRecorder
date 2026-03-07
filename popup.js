@@ -1,6 +1,8 @@
 // Camera Overlay - Popup Script
 // 处理用户设置界面
 
+let isRecording = false;
+
 document.addEventListener('DOMContentLoaded', () => {
   // 加载保存的设置
   loadSettings();
@@ -12,7 +14,66 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 保存按钮
   document.getElementById('saveBtn').addEventListener('click', saveSettings);
+
+  // 录制按钮
+  document.getElementById('recordBtn').addEventListener('click', toggleRecording);
 });
+
+// 切换录制状态
+async function toggleRecording() {
+  const recordBtn = document.getElementById('recordBtn');
+  const recordingDot = document.getElementById('recordingDot');
+  const statusText = document.getElementById('recordingStatusText');
+
+  if (!isRecording) {
+    // 开始录制
+    try {
+      // 获取当前活动标签页
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) {
+        console.error('[Popup] No active tab found');
+        return;
+      }
+
+      // 发送开始录制消息到 content script
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'startRecording' });
+
+      if (response && response.success) {
+        isRecording = true;
+        recordBtn.textContent = '停止录制';
+        recordBtn.classList.remove('btn-record');
+        recordBtn.classList.add('btn-stop');
+        recordingDot.classList.add('active');
+        statusText.textContent = '录制中...';
+        console.log('[Popup] Recording started');
+      } else {
+        console.error('[Popup] Failed to start recording:', response?.error);
+        statusText.textContent = '录制失败: ' + (response?.error || '未知错误');
+      }
+    } catch (error) {
+      console.error('[Popup] Error starting recording:', error);
+      statusText.textContent = '录制失败: ' + error.message;
+    }
+  } else {
+    // 停止录制
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) return;
+
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'stopRecording' });
+
+      isRecording = false;
+      recordBtn.textContent = '开始录制';
+      recordBtn.classList.remove('btn-stop');
+      recordBtn.classList.add('btn-record');
+      recordingDot.classList.remove('active');
+      statusText.textContent = response?.success ? '录制完成！' : '录制已停止';
+      console.log('[Popup] Recording stopped');
+    } catch (error) {
+      console.error('[Popup] Error stopping recording:', error);
+    }
+  }
+}
 
 // 加载设置
 function loadSettings() {

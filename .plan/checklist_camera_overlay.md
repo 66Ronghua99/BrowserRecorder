@@ -1,5 +1,11 @@
 # Checklist: Camera Overlay MVP
 
+> [!NOTE]
+> **归档文档** | 归档日期：2026-03-07
+> 本文档作为历史参考保留，全部任务已完成。
+
+---
+
 ## Implementation
 
 - [x] manifest.json - 插件配置 (Manifest V3, permissions: camera/activeTab, content_scripts: <all_urls>)

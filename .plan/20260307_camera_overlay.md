@@ -1,5 +1,12 @@
 # Design: Camera Overlay Browser Extension
 
+> [!NOTE]
+> **归档文档** | 归档日期：2026-03-07
+> 本文档作为历史参考保留，已被实际实现替代。
+> 完整实现: https://github.com/66Ronghua99/camera-overlay
+
+---
+
 **Date**: 2026-03-07
 **Feature**: 摄像头悬浮窗插件 MVP
 

@@ -8,7 +8,10 @@
     "activeTab",
     "contentSettings",
     "storage",
-    "tabs"
+    "tabs",
+    "tabCapture",
+    "desktopCapture",
+    "microphone"
   ],
   "host_permissions": [
     "<all_urls>"

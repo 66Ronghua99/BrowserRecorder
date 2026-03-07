@@ -45,4 +45,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true; // 异步响应
   }
+
+  // Tab capture 相关
+  if (request.action === 'getTabCaptureStatus') {
+    chrome.tabCapture.getCapturedTabs((capturedTabs) => {
+      const isCaptured = capturedTabs.some(tab => tab.id === sender.tab.id);
+      sendResponse({ captured: isCaptured });
+    });
+    return true;
+  }
+
+  // 获取当前活动 tab ID
+  if (request.action === 'getCurrentTabId') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      sendResponse({ tabId: tabs[0]?.id });
+    });
+    return true;
+  }
+
+  // Tab capture - 必须在 background script 中调用
+  if (request.action === 'startTabCapture') {
+    const { tabId } = request;
+
+    chrome.tabCapture.capture({
+      tabId: tabId,
+      audioCapturingEnabled: true,
+      videoConstraints: {
+        mandatory: {
+          minWidth: 1920,
+          maxWidth: 1920,
+          minHeight: 1080,
+          maxHeight: 1080,
+          maxFrameRate: 30
+        }
+      }
+    }, (stream) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else if (!stream) {
+        sendResponse({ success: false, error: 'Stream is null' });
+      } else {
+        // 将 stream 转换为可传递的数据 URL
+        // 注意：MediaStream 不能直接在消息中传递
+        // 我们需要保持 capture 的引用
+        sendResponse({ success: true, streamId: stream.id });
+      }
+    });
+    return true;
+  }
 });
