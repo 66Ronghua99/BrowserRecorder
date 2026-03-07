@@ -5,11 +5,16 @@
   "description": "在任意网页上显示摄像头实时画面悬浮窗",
   "permissions": [
     "camera",
-    "activeTab"
+    "activeTab",
+    "contentSettings",
+    "storage"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

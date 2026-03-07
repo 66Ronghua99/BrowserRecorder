@@ -121,6 +121,15 @@
       return;
     }
 
+    // 确保全局摄像头权限已设置
+    console.log('[Camera Overlay] Requesting global camera permission...');
+    await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'ensurePermission' }, (response) => {
+        console.log('[Camera Overlay] Permission response:', response);
+        resolve();
+      });
+    });
+
     console.log('[Camera Overlay] Creating overlay...');
     const { overlay, video } = createOverlay();
 
