@@ -42,17 +42,22 @@ function saveSettings() {
     mirrorMode: document.getElementById('mirrorMode').checked
   };
 
+  console.log('[Popup] Saving settings:', settings);
+
   chrome.storage.sync.set(settings, () => {
-    // 通知所有标签页更新设置
-    chrome.tabs.query({}, (tabs) => {
-      tabs.forEach(tab => {
-        chrome.tabs.sendMessage(tab.id, {
+    console.log('[Popup] Settings saved to storage');
+
+    // 通知当前活动标签页更新设置
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      console.log('[Popup] Active tab:', tabs[0]);
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, {
           action: 'updateSettings',
           settings: settings
-        }).catch(() => {
-          // 忽略无法发送消息的标签页
+        }, (response) => {
+          console.log('[Popup] Message response:', response);
         });
-      });
+      }
     });
 
     // 显示保存成功反馈

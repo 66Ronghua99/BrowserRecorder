@@ -189,13 +189,19 @@
 
     // 启动摄像头
     const success = await initCamera();
+
+    // 再次应用设置（确保 transform 等属性生效）
+    applySettings();
+
     console.log('[Camera Overlay] Camera init result:', success);
   }
 
   // 监听来自 popup 的消息
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log('[Camera Overlay] Received message:', request);
     if (request.action === 'updateSettings') {
       settings = { ...settings, ...request.settings };
+      console.log('[Camera Overlay] Applying settings:', settings);
       applySettings();
       sendResponse({ success: true });
     }
