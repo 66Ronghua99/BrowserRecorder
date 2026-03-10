@@ -63,6 +63,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // 调整窗口尺寸（用于竖屏录制）
+  if (request.action === 'resizeWindow') {
+    const { width, height } = request;
+    chrome.windows.getCurrent((win) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        return;
+      }
+      chrome.windows.update(win.id, { width, height }, () => {
+        sendResponse({ success: !chrome.runtime.lastError });
+      });
+    });
+    return true;
+  }
+
+  // 获取当前窗口尺寸
+  if (request.action === 'getWindowSize') {
+    chrome.windows.getCurrent((win) => {
+      sendResponse({ width: win.width, height: win.height });
+    });
+    return true;
+  }
+
   // Tab capture - 必须在 background script 中调用
   if (request.action === 'startTabCapture') {
     const { tabId } = request;

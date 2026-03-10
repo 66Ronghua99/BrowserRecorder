@@ -35,11 +35,12 @@
     xlarge: { width: 360, height: 270 }
   };
 
-  // 录制尺寸映射（统一为 16:9）
+  // 录制尺寸映射
   const RECORDING_SIZE_MAP = {
     '1080p': { width: 1920, height: 1080 },
     '900p': { width: 1600, height: 900 },
-    '720p': { width: 1280, height: 720 }
+    '720p': { width: 1280, height: 720 },
+    '1080p-3:4': { width: 1080, height: 1440 }
   };
 
   let settings = { ...DEFAULT_STORED_SETTINGS };
@@ -63,6 +64,7 @@
   let recordingExtension = 'webm';
   let audioContext = null;
   let audioDestination = null;
+  let originalWindowSize = null;
 
   // 加载设置（从存储中加载所有设置）
   function loadSettings() {
@@ -371,6 +373,56 @@
     return RECORDING_SIZE_MAP[settings.recordingResolution] || RECORDING_SIZE_MAP['1080p'];
   }
 
+  function isVerticalRecording() {
+    const size = getRecordingSize();
+    return size.height > size.width;
+  }
+
+  async function adjustWindowForVerticalRecording() {
+    if (!isVerticalRecording()) {
+      return null;
+    }
+
+    const size = getRecordingSize();
+    const screenWidth = screen.width;
+    const screenHeight = screen.height;
+
+    const aspectRatio = size.width / size.height; // 3:4 = 0.75
+    const targetHeight = Math.floor(screenHeight * 0.9);
+    const targetWidth = Math.floor(targetHeight * aspectRatio);
+
+    console.log('[Camera Overlay] Adjusting window to vertical:', { targetWidth, targetHeight, aspectRatio });
+
+    try {
+      await chrome.runtime.sendMessage({
+        action: 'resizeWindow',
+        width: targetWidth,
+        height: targetHeight
+      });
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('[Camera Overlay] Window adjusted');
+      return { width: targetWidth, height: targetHeight };
+    } catch (error) {
+      console.warn('[Camera Overlay] Failed to adjust window:', error);
+      return null;
+    }
+  }
+
+  async function restoreWindowSize(originalSize) {
+    if (!originalSize) return;
+
+    try {
+      await chrome.runtime.sendMessage({
+        action: 'resizeWindow',
+        width: originalSize.width,
+        height: originalSize.height
+      });
+      console.log('[Camera Overlay] Window restored');
+    } catch (error) {
+      console.warn('[Camera Overlay] Failed to restore window:', error);
+    }
+  }
+
   function chooseRecorderMimeType() {
     const mp4Types = [
       'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
@@ -424,20 +476,28 @@
       if (tabVideoElement.readyState >= 2) {
         const canvasAspect = canvas.width / canvas.height;
         const tabAspect = tabVideoElement.videoWidth / tabVideoElement.videoHeight;
-        let sx = 0;
-        let sy = 0;
-        let sw = tabVideoElement.videoWidth;
-        let sh = tabVideoElement.videoHeight;
+        
+        // 填充背景色
+        canvasCtx.fillStyle = '#000000';
+        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+        let dx, dy, dWidth, dHeight;
 
         if (tabAspect > canvasAspect) {
-          sw = tabVideoElement.videoHeight * canvasAspect;
-          sx = (tabVideoElement.videoWidth - sw) / 2;
+          // 网页内容更宽，保持高度，缩放宽度（contain 模式）
+          dHeight = canvas.height;
+          dWidth = canvas.height * tabAspect;
+          dx = (canvas.width - dWidth) / 2;
+          dy = 0;
         } else {
-          sh = tabVideoElement.videoWidth / canvasAspect;
-          sy = (tabVideoElement.videoHeight - sh) / 2;
+          // 网页内容更高，保持宽度，缩放高度（contain 模式）
+          dWidth = canvas.width;
+          dHeight = canvas.width / tabAspect;
+          dx = 0;
+          dy = (canvas.height - dHeight) / 2;
         }
 
-        canvasCtx.drawImage(tabVideoElement, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        canvasCtx.drawImage(tabVideoElement, dx, dy, dWidth, dHeight);
       }
 
       animationId = requestAnimationFrame(drawFrame);
@@ -455,7 +515,22 @@
     recordedChunks = [];
     const recordingSize = getRecordingSize();
 
+    let originalWindowSize = null;
+
     try {
+      if (isVerticalRecording()) {
+        const size = await adjustWindowForVerticalRecording();
+        originalWindowSize = size;
+        
+        const confirmed = confirm('窗口已调整为竖版。请重新选择要共享的标签页，然后点击确定继续录制。');
+        if (!confirmed) {
+          throw new Error('User cancelled');
+        }
+      }
+
+      // 保存原始窗口尺寸用于后续恢复
+      window.originalWindowSize = originalWindowSize;
+
       tabCaptureStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           frameRate: 30
@@ -571,6 +646,12 @@
     }
 
     await recorderStopPromise;
+
+    // 恢复窗口尺寸
+    if (window.originalWindowSize) {
+      await restoreWindowSize(window.originalWindowSize);
+      window.originalWindowSize = null;
+    }
 
     cleanupRecording();
 

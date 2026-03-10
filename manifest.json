@@ -11,7 +11,8 @@
     "tabs",
     "tabCapture",
     "desktopCapture",
-    "microphone"
+    "microphone",
+    "windows"
   ],
   "host_permissions": [
     "<all_urls>"
